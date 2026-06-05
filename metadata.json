@@ -1,0 +1,6 @@
+{
+  "name": "Secure File Manager",
+  "description": "Secure file manager featuring high-grade AES client-side encryption and integrated Google Drive, Dropbox, and OneDrive cloud access.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
