@@ -1,6 +1,9 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.*
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import com.example.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.launch
 import androidx.compose.animation.core.spring
@@ -160,6 +163,45 @@ fun LocalExplorerScreen(viewModel: FileViewModel) {
     val settings by viewModel.vaultSettings.collectAsState()
     val allLocalFiles by viewModel.allLocalFilesFlow.collectAsState()
 
+    val context = LocalContext.current
+    val hasPermission by viewModel.hasDeviceStoragePermission.collectAsState()
+
+    // Helper to check and set permission in database flow
+    fun checkAndSetPermission(): Boolean {
+        val granted = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            android.os.Environment.isExternalStorageManager() ||
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.READ_EXTERNAL_STORAGE
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        } else {
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.READ_EXTERNAL_STORAGE
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+        viewModel.hasDeviceStoragePermission.value = granted
+        return granted
+    }
+
+    LaunchedEffect(Unit) {
+        checkAndSetPermission()
+    }
+
+    val manageStorageLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        checkAndSetPermission()
+        viewModel.refreshRealFilesTrigger.value++
+    }
+
+    val requestPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        checkAndSetPermission()
+        viewModel.refreshRealFilesTrigger.value++
+    }
+
     var showCreateDialog by remember { mutableStateOf(false) }
     var newFileName by remember { mutableStateOf("") }
     var newFileContent by remember { mutableStateOf("") }
@@ -228,7 +270,7 @@ fun LocalExplorerScreen(viewModel: FileViewModel) {
                         color = MaterialTheme.colorScheme.onBackground
                     )
                     Text(
-                        text = if (settings.isPremiumUser) "Premium Active • Ad-Free" else "Standard Edition • Local Secure",
+                        text = if (settings.isPremiumUser) "Premium Active • Ad-Free" else "Standard Edition • On-Device Storage",
                         style = MaterialTheme.typography.bodySmall,
                         color = if (settings.isPremiumUser) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -246,12 +288,80 @@ fun LocalExplorerScreen(viewModel: FileViewModel) {
             }
         }
 
+        // Live Permission Grant Banner if storage permissions are disabled
+        if (!hasPermission) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                    ),
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FolderOpen,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(44.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Search & Browse Real Files Only",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Text(
+                            text = "Enable access to search, manage, and encrypt real documents, images, videos, and downloads on your phone storage.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Button(
+                            onClick = {
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                                    try {
+                                        val intent = android.content.Intent(
+                                            android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                            android.net.Uri.parse("package:${context.packageName}")
+                                        )
+                                        manageStorageLauncher.launch(intent)
+                                    } catch (e: Exception) {
+                                        val intent = android.content.Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                                        manageStorageLauncher.launch(intent)
+                                    }
+                                } else {
+                                    requestPermissionLauncher.launch(
+                                        arrayOf(
+                                            android.Manifest.permission.READ_EXTERNAL_STORAGE,
+                                            android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+                                        )
+                                    )
+                                }
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Grant Real Storage Permission", fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+        }
+
         // Search Input Area
         item {
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { viewModel.searchQuery.value = it },
-                placeholder = { Text("Search virtual storage...") },
+                placeholder = { Text(if (hasPermission) "Search real phone documents..." else "Search virtual storage...") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 singleLine = true,
                 shape = RoundedCornerShape(24.dp),
